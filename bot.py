@@ -167,14 +167,28 @@ def start_command(message):
     """Обработчик команды /start"""
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
+    first_name = message.from_user.first_name or "Пользователь"
     
     logger.info(f"Пользователь {username} (ID: {user_id}) запустил бота")
     
-    markup = types.InlineKeyboardMarkup(row_width=1)
+    # Регистрируем пользователя в БД (если еще нет)
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO users (id, username, first_name, last_name, created_at)
+            VALUES (?, ?, ?, ?, datetime('now'))
+        """, (user_id, username, first_name, message.from_user.last_name or ""))
+        conn.commit()
+        conn.close()
+    except:
+        pass  # Таблица users может не существовать в старых БД
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
     
     if is_admin(user_id):
         markup.add(
-            types.InlineKeyboardButton("🛍 Каталог товаров", callback_data="catalog"),
+            types.InlineKeyboardButton("🛍 Каталог", callback_data="catalog"),
             types.InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")
         )
         bot.send_message(
@@ -186,13 +200,20 @@ def start_command(message):
         )
     else:
         markup.add(
-            types.InlineKeyboardButton("🛍 Каталог товаров", callback_data="catalog"),
-            types.InlineKeyboardButton("ℹ️ О боте", callback_data="about")
+            types.InlineKeyboardButton("🛍 Каталог", callback_data="catalog"),
+            types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders")
+        )
+        markup.add(
+            types.InlineKeyboardButton("💬 Обращения", callback_data="my_tickets"),
+            types.InlineKeyboardButton("⭐️ Отзывы", callback_data="reviews")
+        )
+        markup.add(
+            types.InlineKeyboardButton("ℹ️ Информация", callback_data="info")
         )
         bot.send_message(
             message.chat.id,
-            f"👋 Добро пожаловать, <b>{username}</b>!\n\n"
-            f"Я бот для покупки цифровых товаров.\n"
+            f"👋 Добро пожаловать, <b>{first_name}</b>!\n\n"
+            f"Я бот для покупки товаров.\n"
             f"Выберите действие:",
             parse_mode='HTML',
             reply_markup=markup
@@ -226,22 +247,29 @@ def start_callback(call):
     """Возврат в главное меню"""
     bot.answer_callback_query(call.id, "🏠 Главное меню")
     
-    markup = types.InlineKeyboardMarkup(row_width=1)
+    markup = types.InlineKeyboardMarkup(row_width=2)
     user_id = call.from_user.id
-    username = call.from_user.username or call.from_user.first_name
+    first_name = call.from_user.first_name or "Пользователь"
     
     if is_admin(user_id):
         markup.add(
-            types.InlineKeyboardButton("🛍 Каталог товаров", callback_data="catalog"),
+            types.InlineKeyboardButton("🛍 Каталог", callback_data="catalog"),
             types.InlineKeyboardButton("⚙️ Админ-панель", callback_data="admin_panel")
         )
         text = f"👋 <b>Администратор</b>\n\nВыберите действие:"
     else:
         markup.add(
-            types.InlineKeyboardButton("🛍 Каталог товаров", callback_data="catalog"),
-            types.InlineKeyboardButton("ℹ️ О боте", callback_data="about")
+            types.InlineKeyboardButton("🛍 Каталог", callback_data="catalog"),
+            types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders")
         )
-        text = f"👋 <b>{username}</b>\n\nВыберите действие:"
+        markup.add(
+            types.InlineKeyboardButton("💬 Обращения", callback_data="my_tickets"),
+            types.InlineKeyboardButton("⭐️ Отзывы", callback_data="reviews")
+        )
+        markup.add(
+            types.InlineKeyboardButton("ℹ️ Информация", callback_data="info")
+        )
+        text = f"👋 <b>{first_name}</b>\n\nВыберите действие:"
     
     bot.edit_message_text(
         chat_id=call.message.chat.id,

@@ -37,25 +37,87 @@ def register_admin_handlers(bot, user_states, user_data):
         
         bot.answer_callback_query(call.id, "⚙️ Админ-панель")
         
+        # Получаем статистику
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        users_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+        pending_orders = cursor.fetchone()[0]
+        conn.close()
+        
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
-            types.InlineKeyboardButton("🛒 Заказы", callback_data="admin_orders"),
             types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
-            types.InlineKeyboardButton("➕ Добавить товар", callback_data="admin_add_product"),
-            types.InlineKeyboardButton("➕ Добавить город", callback_data="admin_add_city"),
-            types.InlineKeyboardButton("➕ Добавить район", callback_data="admin_add_district"),
-            types.InlineKeyboardButton("📦 Пополнить склад", callback_data="admin_add_inventory"),
-            types.InlineKeyboardButton("📋 Список товаров", callback_data="admin_list_products"),
-            types.InlineKeyboardButton("🌆 Список городов", callback_data="admin_list_cities"),
-            types.InlineKeyboardButton("🏘 Список районов", callback_data="admin_list_districts"),
+            types.InlineKeyboardButton("🛒 Управление товарами", callback_data="admin_products_menu")
+        )
+        markup.add(
+            types.InlineKeyboardButton("📦 Заказы", callback_data="admin_orders"),
+            types.InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")
+        )
+        markup.add(
+            types.InlineKeyboardButton("📢 Рассылка", callback_data="admin_broadcast"),
+            types.InlineKeyboardButton("⚙️ Настройки", callback_data="admin_settings")
+        )
+        markup.add(
+            types.InlineKeyboardButton("📜 Логи", callback_data="admin_logs"),
             types.InlineKeyboardButton("◀️ Назад", callback_data="start")
+        )
+        
+        text = (
+            "⚙️ <b>Админ-панель</b>\n\n"
+            f"👥 Пользователей: {users_count}\n"
+            f"⏳ Заказов на подтверждении: {pending_orders}\n\n"
+            "Выберите раздел:"
         )
         
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text="⚙️ <b>Админ-панель</b>\n\n"
-                 "Выберите действие для управления ботом:",
+            text=text,
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+    
+    # ========== ПОДМЕНЮ: УПРАВЛЕНИЕ ТОВАРАМИ ==========
+    
+    @bot.callback_query_handler(func=lambda call: call.data == "admin_products_menu")
+    def admin_products_menu_callback(call):
+        """Подменю управления товарами"""
+        if not is_admin(call.from_user.id):
+            bot.answer_callback_query(call.id, "❌ Доступ запрещен", show_alert=True)
+            return
+        
+        bot.answer_callback_query(call.id, "🛒 Управление товарами")
+        
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton("➕ Добавить товар", callback_data="admin_add_product"),
+            types.InlineKeyboardButton("➕ Добавить город", callback_data="admin_add_city")
+        )
+        markup.add(
+            types.InlineKeyboardButton("➕ Добавить район", callback_data="admin_add_district"),
+            types.InlineKeyboardButton("📦 Пополнить склад", callback_data="admin_add_inventory")
+        )
+        markup.add(
+            types.InlineKeyboardButton("📋 Список товаров", callback_data="admin_list_products"),
+            types.InlineKeyboardButton("🌆 Список городов", callback_data="admin_list_cities")
+        )
+        markup.add(
+            types.InlineKeyboardButton("🏘 Список районов", callback_data="admin_list_districts"),
+            types.InlineKeyboardButton("◀️ Назад", callback_data="admin_panel")
+        )
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="🛒 <b>Управление товарами</b>\n\n"
+                 "Здесь вы можете:\n"
+                 "• Добавлять новые товары\n"
+                 "• Управлять городами и районами\n"
+                 "• Пополнять склад товарами\n"
+                 "• Просматривать списки\n\n"
+                 "Выберите действие:",
             parse_mode='HTML',
             reply_markup=markup
         )
@@ -477,7 +539,7 @@ def register_admin_handlers(bot, user_states, user_data):
                 message.chat.id,
                 f"📦 <b>Пополнение склада</b>\n\n"
                 f"Товар: {data.get('inv_product_name')}\n"
-                f"Вес: {weight_grams} грамм\n"
+                f"Вес: {weight} грамм\n"
                 f"Цена: {price_rub} руб.\n\n"
                 f"Шаг 3/5: Выберите город:",
                 parse_mode='HTML',
