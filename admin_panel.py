@@ -1115,3 +1115,54 @@ def register_admin_handlers(bot, user_states, user_data):
             )
         except Exception as e:
             print(f"Ошибка отправки уведомления пользователю: {e}")
+
+    
+    # ========== МОДЕРАЦИЯ ОТЗЫВОВ ==========
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("approve_review_") and is_admin(call.from_user.id))
+    def approve_review_callback(call):
+        """Одобрить отзыв"""
+        review_id = int(call.data.split("_")[-1])
+        
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE reviews
+            SET is_approved = 1
+            WHERE id = ?
+        """, (review_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        bot.edit_message_text(
+            f"✅ Отзыв #{review_id} одобрен и опубликован!",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        bot.answer_callback_query(call.id, "✅ Отзыв одобрен")
+    
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("reject_review_") and is_admin(call.from_user.id))
+    def reject_review_callback(call):
+        """Отклонить отзыв"""
+        review_id = int(call.data.split("_")[-1])
+        
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            DELETE FROM reviews
+            WHERE id = ?
+        """, (review_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        bot.edit_message_text(
+            f"❌ Отзыв #{review_id} отклонён и удалён.",
+            call.message.chat.id,
+            call.message.message_id
+        )
+        bot.answer_callback_query(call.id, "❌ Отзыв отклонён")

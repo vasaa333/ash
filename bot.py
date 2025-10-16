@@ -204,7 +204,6 @@ def start_command(message):
             types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders")
         )
         markup.add(
-            types.InlineKeyboardButton("💬 Обращения", callback_data="my_tickets"),
             types.InlineKeyboardButton("⭐️ Отзывы", callback_data="reviews")
         )
         markup.add(
@@ -263,7 +262,6 @@ def start_callback(call):
             types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders")
         )
         markup.add(
-            types.InlineKeyboardButton("💬 Обращения", callback_data="my_tickets"),
             types.InlineKeyboardButton("⭐️ Отзывы", callback_data="reviews")
         )
         markup.add(
