@@ -24,26 +24,36 @@ def register_admin_settings_handlers(bot, user_states, user_data):
     
     
     def get_setting(key, default=''):
-        """Получить значение настройки"""
+        """Получить значение настройки из таблицы с одной строкой"""
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-        cursor.execute("SELECT value FROM bot_settings WHERE key = ?", (key,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else default
+        try:
+            # bot_settings имеет структуру с отдельными колонками, а не key-value
+            cursor.execute(f"SELECT {key} FROM bot_settings WHERE id = 1")
+            result = cursor.fetchone()
+            conn.close()
+            return str(result[0]) if result and result[0] is not None else default
+        except Exception as e:
+            conn.close()
+            return default
     
     
     def set_setting(key, value):
-        """Установить значение настройки"""
+        """Установить значение настройки в таблице с одной строкой"""
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO bot_settings (key, value, updated_at)
-            VALUES (?, ?, datetime('now'))
-            ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = datetime('now')
-        """, (key, value, value))
-        conn.commit()
-        conn.close()
+        try:
+            # bot_settings имеет структуру с отдельными колонками, а не key-value
+            cursor.execute(f"""
+                UPDATE bot_settings 
+                SET {key} = ?, updated_at = datetime('now')
+                WHERE id = 1
+            """, (value,))
+            conn.commit()
+        except Exception as e:
+            pass
+        finally:
+            conn.close()
     
     
     # ========== ГЛАВНОЕ МЕНЮ НАСТРОЕК ==========
@@ -159,7 +169,7 @@ def register_admin_settings_handlers(bot, user_states, user_data):
         bot.answer_callback_query(call.id)
         user_states[call.from_user.id] = "setting_welcome_message"
         
-        current = get_setting('welcome_message', 'Добро пожаловать!')
+        current = get_setting('welcome_text', 'Добро пожаловать!')
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data="admin_settings"))
