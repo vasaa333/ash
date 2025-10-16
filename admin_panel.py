@@ -39,11 +39,12 @@ def register_admin_handlers(bot, user_states, user_data):
         
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
+            types.InlineKeyboardButton("🛒 Заказы", callback_data="admin_orders"),
+            types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
             types.InlineKeyboardButton("➕ Добавить товар", callback_data="admin_add_product"),
             types.InlineKeyboardButton("➕ Добавить город", callback_data="admin_add_city"),
             types.InlineKeyboardButton("➕ Добавить район", callback_data="admin_add_district"),
             types.InlineKeyboardButton("📦 Пополнить склад", callback_data="admin_add_inventory"),
-            types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
             types.InlineKeyboardButton("📋 Список товаров", callback_data="admin_list_products"),
             types.InlineKeyboardButton("🌆 Список городов", callback_data="admin_list_cities"),
             types.InlineKeyboardButton("🏘 Список районов", callback_data="admin_list_districts"),
@@ -428,14 +429,18 @@ def register_admin_handlers(bot, user_states, user_data):
         
         try:
             weight_str, price_str = text.split('|', 1)
-            weight_grams = int(weight_str.strip())
+            
+            # Поддержка десятичных количеств - заменяем запятую на точку
+            weight_str = weight_str.strip().replace(',', '.')
+            weight = float(weight_str)
             price_rub = int(price_str.strip())
             
-            if weight_grams <= 0 or price_rub <= 0:
+            if weight <= 0 or price_rub <= 0:
                 raise ValueError("Значения должны быть положительными")
             
+            # Сохраняем вес как есть (может быть 0.25, 0.5, 100 и т.д.)
             data = user_data.get(message.from_user.id, {})
-            data['inv_weight'] = weight_grams
+            data['inv_weight'] = weight
             data['inv_price'] = price_rub
             user_data[message.from_user.id] = data
             
@@ -805,6 +810,16 @@ def register_admin_handlers(bot, user_states, user_data):
         cursor.execute("SELECT COUNT(*) FROM orders")
         orders_count = cursor.fetchone()[0]
         
+        # Новая статистика по заказам
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+        pending_orders = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'confirmed'")
+        confirmed_orders = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'cancelled'")
+        cancelled_orders = cursor.fetchone()[0]
+        
         conn.close()
         
         text = (
@@ -814,7 +829,11 @@ def register_admin_handlers(bot, user_states, user_data):
             f"🏘 Районов: {districts_count}\n\n"
             f"✅ Доступно на складе: {available_count}\n"
             f"💰 Продано: {sold_count}\n"
-            f"📋 Всего заказов: {orders_count}"
+            f"📋 Всего заказов: {orders_count}\n\n"
+            f"<b>Заказы:</b>\n"
+            f"⏳ Ожидают подтверждения: {pending_orders}\n"
+            f"✅ Подтверждены: {confirmed_orders}\n"
+            f"❌ Отменены: {cancelled_orders}"
         )
         
         markup = types.InlineKeyboardMarkup()
@@ -827,3 +846,210 @@ def register_admin_handlers(bot, user_states, user_data):
             parse_mode='HTML',
             reply_markup=markup
         )
+    
+    # ========== ОБРАБОТКА ПОДТВЕРЖДЕНИЯ/ОТКЛОНЕНИЯ ЗАКАЗОВ ==========
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_confirm_order_"))
+    def admin_confirm_order_callback(call):
+        """Админ подтверждает заказ"""
+        if not is_admin(call.from_user.id):
+            bot.answer_callback_query(call.id, "❌ Доступ запрещен", show_alert=True)
+            return
+        
+        order_id = int(call.data.split("_")[-1])
+        admin_id = call.from_user.id
+        
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Получаем данные заказа
+        cursor.execute("""
+            SELECT o.user_id, o.inventory_id, o.status, 
+                   i.data_encrypted, p.name, i.weight_grams, i.price_rub
+            FROM orders o
+            JOIN inventory i ON o.inventory_id = i.id
+            JOIN products p ON i.product_id = p.id
+            WHERE o.id = ?
+        """, (order_id,))
+        
+        order_data = cursor.fetchone()
+        
+        if not order_data:
+            bot.answer_callback_query(call.id, "❌ Заказ не найден", show_alert=True)
+            conn.close()
+            return
+        
+        user_id, inv_id, status, encrypted_data, prod_name, weight, price = order_data
+        
+        if status != 'pending':
+            bot.answer_callback_query(call.id, "❌ Заказ уже обработан", show_alert=True)
+            conn.close()
+            return
+        
+        # Обновляем статус заказа
+        cursor.execute("""
+            UPDATE orders
+            SET status = 'confirmed', confirmed_by = ?, confirmed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (admin_id, order_id))
+        
+        # Обновляем статус товара
+        cursor.execute("""
+            UPDATE inventory
+            SET status = 'sold', sold_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (inv_id,))
+        
+        # Обновляем статистику пользователя
+        cursor.execute("""
+            UPDATE users
+            SET total_orders = total_orders + 1, total_spent = total_spent + ?
+            WHERE user_id = ?
+        """, (price, user_id))
+        
+        conn.commit()
+        conn.close()
+        
+        bot.answer_callback_query(call.id, "✅ Заказ подтвержден!", show_alert=True)
+        
+        # Обновляем сообщение админа
+        bot.edit_message_caption(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            caption=f"✅ <b>Заказ #{order_id} подтвержден</b>\n\n"
+                    f"Пользователь получил данные товара.",
+            parse_mode='HTML'
+        )
+        
+        # Расшифровываем данные
+        decrypted_data = base64.b64decode(encrypted_data.encode('utf-8')).decode('utf-8')
+        
+        # Отправляем данные пользователю
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders"),
+            types.InlineKeyboardButton("⭐ Оставить отзыв", callback_data=f"leave_review_{order_id}"),
+            types.InlineKeyboardButton("🏠 В главное меню", callback_data="start")
+        )
+        
+        try:
+            bot.send_message(
+                user_id,
+                f"✅ <b>Заказ #{order_id} подтвержден!</b>\n\n"
+                f"Ваша оплата проверена и подтверждена.\n\n"
+                f"📦 Товар: {prod_name}\n"
+                f"⚖️ Вес: {weight}г\n"
+                f"💰 Цена: {price}₽\n\n"
+                f"📍 <b>Данные товара:</b>\n"
+                f"<code>{decrypted_data}</code>\n\n"
+                f"Спасибо за покупку! 🎉",
+                parse_mode='HTML',
+                reply_markup=markup
+            )
+        except Exception as e:
+            print(f"Ошибка отправки данных пользователю: {e}")
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_reject_order_"))
+    def admin_reject_order_callback(call):
+        """Админ отклоняет заказ - запрос причины"""
+        if not is_admin(call.from_user.id):
+            bot.answer_callback_query(call.id, "❌ Доступ запрещен", show_alert=True)
+            return
+        
+        order_id = int(call.data.split("_")[-1])
+        
+        # Сохраняем состояние
+        user_states[call.from_user.id] = f"awaiting_rejection_reason_{order_id}"
+        
+        bot.answer_callback_query(call.id, "✍️ Укажите причину отклонения")
+        
+        bot.send_message(
+            call.message.chat.id,
+            f"📝 <b>Отклонение заказа #{order_id}</b>\n\n"
+            f"Пожалуйста, напишите причину отклонения заказа.\n"
+            f"Это сообщение будет отправлено пользователю.",
+            parse_mode='HTML'
+        )
+    
+    @bot.message_handler(func=lambda m: user_states.get(m.from_user.id, "").startswith("awaiting_rejection_reason_"))
+    def process_rejection_reason(message):
+        """Обработка причины отклонения"""
+        if not is_admin(message.from_user.id):
+            return
+        
+        admin_id = message.from_user.id
+        state = user_states.get(admin_id, "")
+        order_id = int(state.split("_")[-1])
+        reason = message.text.strip()
+        
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Получаем данные заказа
+        cursor.execute("""
+            SELECT user_id, inventory_id, status
+            FROM orders
+            WHERE id = ?
+        """, (order_id,))
+        
+        order_data = cursor.fetchone()
+        
+        if not order_data:
+            bot.send_message(message.chat.id, "❌ Заказ не найден")
+            user_states.pop(admin_id, None)
+            conn.close()
+            return
+        
+        user_id, inv_id, status = order_data
+        
+        if status != 'pending':
+            bot.send_message(message.chat.id, "❌ Заказ уже обработан")
+            user_states.pop(admin_id, None)
+            conn.close()
+            return
+        
+        # Обновляем статус заказа
+        cursor.execute("""
+            UPDATE orders
+            SET status = 'cancelled', rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (reason, order_id))
+        
+        # Возвращаем товар в available
+        cursor.execute("""
+            UPDATE inventory
+            SET status = 'available', buyer_id = NULL
+            WHERE id = ?
+        """, (inv_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        user_states.pop(admin_id, None)
+        
+        bot.send_message(
+            message.chat.id,
+            f"✅ Заказ #{order_id} отклонен.\n\n"
+            f"Пользователь получит уведомление с указанной причиной."
+        )
+        
+        # Уведомляем пользователя
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("🛍 К каталогу", callback_data="catalog"),
+            types.InlineKeyboardButton("💬 Связаться с поддержкой", callback_data="create_ticket"),
+            types.InlineKeyboardButton("🏠 В главное меню", callback_data="start")
+        )
+        
+        try:
+            bot.send_message(
+                user_id,
+                f"❌ <b>Заказ #{order_id} отклонен</b>\n\n"
+                f"К сожалению, ваша оплата не была подтверждена.\n\n"
+                f"<b>Причина:</b>\n{reason}\n\n"
+                f"Если у вас есть вопросы, обратитесь в поддержку.",
+                parse_mode='HTML',
+                reply_markup=markup
+            )
+        except Exception as e:
+            print(f"Ошибка отправки уведомления пользователю: {e}")
