@@ -176,7 +176,7 @@ def start_command(message):
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT OR IGNORE INTO users (id, username, first_name, last_name, created_at)
+            INSERT OR IGNORE INTO users (user_id, username, first_name, last_name, registration_date)
             VALUES (?, ?, ?, ?, datetime('now'))
         """, (user_id, username, first_name, message.from_user.last_name or ""))
         conn.commit()
