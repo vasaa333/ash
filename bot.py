@@ -96,7 +96,7 @@ def init_database():
         )
     ''')
     
-    # Таблица заказов
+    # Таблица заказов (базовая версия, будет расширена миграцией)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +116,13 @@ def init_database():
     conn.commit()
     conn.close()
     logger.info("База данных инициализирована")
+    
+    # Запускаем миграции
+    try:
+        from db_migration import migrate_database
+        migrate_database()
+    except Exception as e:
+        logger.warning(f"Миграция БД не выполнена (возможно уже применена): {e}")
 
 
 def encrypt_data(data: str) -> str:
@@ -135,11 +142,24 @@ def is_admin(user_id: int) -> bool:
 
 # Импорт обработчиков
 from admin_panel import register_admin_handlers
+from admin_orders import register_orders_handlers
 from message_handler import register_user_handlers
+from user_menu import register_user_menu_handlers
+from admin_users import register_admin_users_handlers
+from admin_broadcast import register_admin_broadcast_handlers
+from admin_settings import register_admin_settings_handlers
+from admin_logs import register_admin_logs_handlers
+import db_migration
 
 # Регистрация обработчиков
 register_admin_handlers(bot, user_states, user_data)
+register_orders_handlers(bot, user_states, user_data)
 register_user_handlers(bot, user_states, user_data)
+register_user_menu_handlers(bot, user_states, user_data)
+register_admin_users_handlers(bot, user_states, user_data)
+register_admin_broadcast_handlers(bot, user_states, user_data)
+register_admin_settings_handlers(bot, user_states, user_data)
+register_admin_logs_handlers(bot, user_states, user_data)
 
 
 @bot.message_handler(commands=['start'])

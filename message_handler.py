@@ -357,9 +357,10 @@ def register_user_handlers(bot, user_states, user_data):
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("confirm_buy_"))
     def confirm_buy_callback(call):
-        """Обработка подтверждения покупки"""
+        """Обработка подтверждения покупки - показываем инструкции по оплате"""
         item_id = int(call.data.split("_")[-1])
         user_id = call.from_user.id
+        username = call.from_user.username or call.from_user.first_name
         
         data = user_data.get(user_id, {})
         product_name = data.get("buy_product_name")
@@ -372,7 +373,7 @@ def register_user_handlers(bot, user_states, user_data):
         cursor = conn.cursor()
         
         # Проверяем, что товар еще доступен
-        cursor.execute("SELECT status, data_encrypted FROM inventory WHERE id = ?", (item_id,))
+        cursor.execute("SELECT status FROM inventory WHERE id = ?", (item_id,))
         result = cursor.fetchone()
         
         if not result:
@@ -380,37 +381,214 @@ def register_user_handlers(bot, user_states, user_data):
             conn.close()
             return
         
-        status, encrypted_data = result
+        status = result[0]
         
         if status != 'available':
             bot.answer_callback_query(call.id, "❌ Товар уже продан", show_alert=True)
             conn.close()
             return
         
-        # Обновляем статус товара
+        # Получаем инструкции по оплате
+        cursor.execute("SELECT payment_instructions FROM bot_settings WHERE id = 1")
+        settings = cursor.fetchone()
+        payment_instructions = settings[0] if settings else "Реквизиты будут предоставлены администратором."
+        
+        conn.close()
+        
+        bot.answer_callback_query(call.id, "💳 Инструкции по оплате")
+        
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("💰 Я оплатил", callback_data=f"payment_done_{item_id}"),
+            types.InlineKeyboardButton("❌ Отменить покупку", callback_data=f"cancel_buy_{item_id}")
+        )
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"💳 <b>Инструкции по оплате</b>\n\n"
+                 f"📦 Товар: {product_name}\n"
+                 f"🌆 Город: {city_name}\n"
+                 f"🏘 Район: {district_name}\n"
+                 f"⚖️ Вес: {weight} грамм\n"
+                 f"💰 Цена: <b>{price} рублей</b>\n\n"
+                 f"📋 <b>Реквизиты для оплаты:</b>\n"
+                 f"{payment_instructions}\n\n"
+                 f"⚠️ После оплаты нажмите кнопку 'Я оплатил' и отправьте скриншот квитанции.\n"
+                 f"Ваш заказ будет проверен администратором.",
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("payment_done_"))
+    def payment_done_callback(call):
+        """Пользователь нажал 'Я оплатил' - ожидаем скриншот"""
+        item_id = int(call.data.split("_")[-1])
+        user_id = call.from_user.id
+        
+        # Сохраняем состояние
+        user_states[user_id] = f"awaiting_payment_proof_{item_id}"
+        
+        bot.answer_callback_query(call.id, "📷 Отправьте скриншот квитанции")
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"cancel_buy_{item_id}"))
+        
+        bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="📷 <b>Подтверждение оплаты</b>\n\n"
+                 "Пожалуйста, отправьте скриншот квитанции об оплате.\n"
+                 "Это может быть фото или скриншот из банковского приложения.\n\n"
+                 "После отправки ваш заказ будет проверен администратором.",
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+    
+    @bot.message_handler(content_types=['photo'], 
+                        func=lambda m: user_states.get(m.from_user.id, "").startswith("awaiting_payment_proof_"))
+    def process_payment_proof(message):
+        """Обработка скриншота квитанции"""
+        user_id = message.from_user.id
+        username = message.from_user.username or message.from_user.first_name
+        first_name = message.from_user.first_name or "Пользователь"
+        
+        # Получаем item_id из состояния
+        state = user_states.get(user_id, "")
+        item_id = int(state.split("_")[-1])
+        
+        # Получаем file_id фото
+        photo_file_id = message.photo[-1].file_id
+        
+        data = user_data.get(user_id, {})
+        product_name = data.get("buy_product_name")
+        city_name = data.get("buy_city_name")
+        district_name = data.get("buy_district_name")
+        weight = data.get("buy_weight")
+        price = data.get("buy_price")
+        
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        # Проверяем, что товар еще доступен
+        cursor.execute("SELECT status FROM inventory WHERE id = ?", (item_id,))
+        result = cursor.fetchone()
+        
+        if not result or result[0] != 'available':
+            bot.send_message(
+                message.chat.id,
+                "❌ К сожалению, товар уже продан или недоступен."
+            )
+            user_states.pop(user_id, None)
+            user_data.pop(user_id, None)
+            conn.close()
+            return
+        
+        # Резервируем товар
         cursor.execute("""
             UPDATE inventory
-            SET status = 'sold', sold_at = CURRENT_TIMESTAMP, buyer_id = ?
+            SET status = 'reserved', buyer_id = ?
             WHERE id = ?
         """, (user_id, item_id))
         
-        # Создаем заказ
+        # Создаем заказ со статусом pending
         cursor.execute("""
-            INSERT INTO orders (user_id, inventory_id)
-            VALUES (?, ?)
-        """, (user_id, item_id))
+            INSERT INTO orders (user_id, inventory_id, status, payment_proof)
+            VALUES (?, ?, 'pending', ?)
+        """, (user_id, item_id, photo_file_id))
+        
+        order_id = cursor.lastrowid
+        
+        # Регистрируем или обновляем пользователя
+        cursor.execute("""
+            INSERT INTO users (user_id, username, first_name, last_activity, registration_date)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                last_activity = CURRENT_TIMESTAMP
+        """, (user_id, username, first_name))
         
         conn.commit()
+        
+        # Получаем данные товара для админа
+        cursor.execute("""
+            SELECT p.name, c.name, d.name, i.weight_grams, i.price_rub
+            FROM inventory i
+            JOIN products p ON i.product_id = p.id
+            JOIN cities c ON i.city_id = c.id
+            JOIN districts d ON i.district_id = d.id
+            WHERE i.id = ?
+        """, (item_id,))
+        
+        product_info = cursor.fetchone()
         conn.close()
         
-        # Расшифровываем данные
-        decrypted_data = decrypt_data(encrypted_data)
-        
-        bot.answer_callback_query(call.id, "✅ Покупка успешно завершена!", show_alert=True)
-        
-        # Очищаем данные пользователя
-        user_data.pop(user_id, None)
+        # Очищаем состояние
         user_states.pop(user_id, None)
+        user_data.pop(user_id, None)
+        
+        # Отправляем подтверждение пользователю
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        markup.add(
+            types.InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders"),
+            types.InlineKeyboardButton("🏠 В главное меню", callback_data="start")
+        )
+        
+        bot.send_message(
+            message.chat.id,
+            f"✅ <b>Заказ #{order_id} создан!</b>\n\n"
+            f"Ваш заказ отправлен на проверку администратору.\n"
+            f"Вы получите уведомление после подтверждения оплаты.\n\n"
+            f"📦 Товар: {product_name}\n"
+            f"💰 Сумма: {price} руб.\n\n"
+            f"⏳ Обычно проверка занимает 5-15 минут.",
+            parse_mode='HTML',
+            reply_markup=markup
+        )
+        
+        # Отправляем уведомление админу
+        from bot import ADMIN_ID, bot as main_bot
+        
+        if product_info:
+            prod_name, city, district, w, p = product_info
+            
+            admin_markup = types.InlineKeyboardMarkup(row_width=2)
+            admin_markup.add(
+                types.InlineKeyboardButton("✅ Подтвердить", callback_data=f"admin_confirm_order_{order_id}"),
+                types.InlineKeyboardButton("❌ Отклонить", callback_data=f"admin_reject_order_{order_id}")
+            )
+            admin_markup.add(
+                types.InlineKeyboardButton("👤 Профиль пользователя", callback_data=f"admin_user_profile_{user_id}")
+            )
+            
+            try:
+                main_bot.send_photo(
+                    ADMIN_ID,
+                    photo_file_id,
+                    caption=f"🔔 <b>Новый заказ #{order_id}</b>\n\n"
+                            f"👤 Пользователь: @{username if username else 'без username'} (ID: {user_id})\n"
+                            f"📦 Товар: {prod_name}\n"
+                            f"⚖️ Вес: {w}г\n"
+                            f"💰 Цена: {p}₽\n"
+                            f"🌆 Город: {city}\n"
+                            f"🏘 Район: {district}\n\n"
+                            f"📷 Скриншот квитанции выше ⬆️\n\n"
+                            f"Проверьте оплату и подтвердите заказ:",
+                    parse_mode='HTML',
+                    reply_markup=admin_markup
+                )
+            except Exception as e:
+                print(f"Ошибка отправки уведомления админу: {e}")
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("cancel_buy_"))
+    def cancel_buy_callback(call):
+        """Отмена покупки"""
+        user_id = call.from_user.id
+        
+        # Очищаем состояние
+        user_states.pop(user_id, None)
+        user_data.pop(user_id, None)
+        
+        bot.answer_callback_query(call.id, "❌ Покупка отменена")
         
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
@@ -421,15 +599,8 @@ def register_user_handlers(bot, user_states, user_data):
         bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
-            text=f"✅ <b>Покупка успешно завершена!</b>\n\n"
-                 f"📦 Товар: {product_name}\n"
-                 f"🌆 Город: {city_name}\n"
-                 f"🏘 Район: {district_name}\n"
-                 f"⚖️ Вес: {weight} грамм\n"
-                 f"💰 Цена: {price} рублей\n\n"
-                 f"📍 <b>Данные товара:</b>\n"
-                 f"<code>{decrypted_data}</code>\n\n"
-                 f"Спасибо за покупку! 🎉",
+            text="❌ <b>Покупка отменена</b>\n\n"
+                 "Вы можете вернуться к каталогу и выбрать другой товар.",
             parse_mode='HTML',
             reply_markup=markup
         )
