@@ -96,7 +96,7 @@ def init_database():
         )
     ''')
     
-    # Таблица заказов
+    # Таблица заказов (базовая версия, будет расширена миграцией)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +116,13 @@ def init_database():
     conn.commit()
     conn.close()
     logger.info("База данных инициализирована")
+    
+    # Запускаем миграции
+    try:
+        from db_migration import migrate_database
+        migrate_database()
+    except Exception as e:
+        logger.warning(f"Миграция БД не выполнена (возможно уже применена): {e}")
 
 
 def encrypt_data(data: str) -> str:
