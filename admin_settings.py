@@ -7,6 +7,7 @@
 
 import os
 import sqlite3
+from datetime import datetime
 from telebot import types
 
 
@@ -270,21 +271,31 @@ def register_admin_settings_handlers(bot, user_states, user_data):
         
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
+        
+        # bot_settings имеет одну строку с отдельными колонками
         cursor.execute("""
-            SELECT key, value, updated_at
+            SELECT captcha_enabled, maintenance_mode, welcome_text, 
+                   welcome_media_type, payment_instructions, support_username, updated_at
             FROM bot_settings
-            ORDER BY key
+            WHERE id = 1
         """)
-        settings = cursor.fetchall()
+        result = cursor.fetchone()
         conn.close()
         
-        if not settings:
+        if not result:
             text = "📊 *Все настройки*\n\nНастройки не установлены."
         else:
+            captcha, maintenance, welcome, media_type, payment, support, updated = result
+            
             text = "📊 *Все настройки*\n\n"
-            for key, value, updated_at in settings:
-                short_value = value[:50] + "..." if len(value) > 50 else value
-                text += f"• `{key}`: {short_value}\n"
+            text += f"• `captcha_enabled`: {'✅ Да' if captcha else '❌ Нет'}\n"
+            text += f"• `maintenance_mode`: {'✅ Да' if maintenance else '❌ Нет'}\n"
+            text += f"• `welcome_text`: {(welcome[:30] + '...') if welcome and len(welcome) > 30 else (welcome or 'не установлено')}\n"
+            text += f"• `welcome_media_type`: {media_type or 'не установлен'}\n"
+            text += f"• `payment_instructions`: {(payment[:30] + '...') if payment and len(payment) > 30 else (payment or 'не установлены')}\n"
+            text += f"• `support_username`: {support or 'не установлен'}\n"
+            if updated:
+                text += f"\n📅 Обновлено: {datetime.fromisoformat(updated).strftime('%d.%m.%Y %H:%M')}\n"
         
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("◀️ К настройкам", callback_data="admin_settings"))

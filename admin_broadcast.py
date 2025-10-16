@@ -187,7 +187,7 @@ def register_admin_broadcast_handlers(bot, user_states, user_data):
         
         # Создаём запись о рассылке
         cursor.execute("""
-            INSERT INTO broadcasts (admin_id, message, status, total_users, created_at)
+            INSERT INTO broadcasts (admin_id, message_text, status, total_count, created_at)
             VALUES (?, ?, 'sending', ?, datetime('now'))
         """, (call.from_user.id, broadcast_text, len(users)))
         
@@ -291,7 +291,7 @@ def register_admin_broadcast_handlers(bot, user_states, user_data):
         offset = page * per_page
         
         cursor.execute("""
-            SELECT id, message, status, total_users, sent_count, failed_count, created_at
+            SELECT id, message_text, status, total_count, sent_count, failed_count, created_at
             FROM broadcasts
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?

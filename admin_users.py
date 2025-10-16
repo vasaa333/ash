@@ -147,13 +147,13 @@ def register_admin_users_handlers(bot, user_states, user_data):
         offset = page * per_page
         
         cursor.execute(f"""
-            SELECT u.id, u.username, u.first_name, u.is_blocked, u.created_at,
+            SELECT u.user_id, u.username, u.first_name, u.is_blocked, u.registration_date,
                    COUNT(DISTINCT o.id) as orders_count
             FROM users u
-            LEFT JOIN orders o ON u.id = o.user_id
+            LEFT JOIN orders o ON u.user_id = o.user_id
             {where_clause}
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
+            GROUP BY u.user_id
+            ORDER BY u.registration_date DESC
             LIMIT ? OFFSET ?
         """, params + [per_page, offset])
         users = cursor.fetchall()
@@ -366,7 +366,7 @@ def register_admin_users_handlers(bot, user_states, user_data):
         
         conn = sqlite3.connect(DATABASE)
         cursor = conn.cursor()
-        cursor.execute("UPDATE users SET is_blocked = 0 WHERE id = ?", (user_id,))
+        cursor.execute("UPDATE users SET is_blocked = 0 WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
         
