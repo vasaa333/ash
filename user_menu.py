@@ -480,7 +480,7 @@ def register_user_menu_handlers(bot, user_states, user_data):
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT id, subject, message, status, created_at, admin_reply, replied_at
+            SELECT id, subject, message, status, created_at, admin_response, updated_at
             FROM tickets
             WHERE id = ? AND user_id = ?
         """, (ticket_id, user_id))
@@ -511,13 +511,13 @@ def register_user_menu_handlers(bot, user_states, user_data):
             text += f"┃ {line}\n"
         text += f"🕐 {datetime.fromisoformat(created_at).strftime('%d.%m.%Y %H:%M')}\n"
         
-        if admin_reply:
+        if admin_response:
             text += f"\n━━━━━━━━━━━━━━━\n\n"
             text += f"👨‍💼 *Администратор:*\n"
-            for line in admin_reply.split('\n'):
+            for line in admin_response.split('\n'):
                 text += f"┃ {line}\n"
-            if replied_at:
-                text += f"🕐 {datetime.fromisoformat(replied_at).strftime('%d.%m.%Y %H:%M')}\n"
+            if updated_at:
+                text += f"🕐 {datetime.fromisoformat(updated_at).strftime('%d.%m.%Y %H:%M')}\n"
         
         markup = types.InlineKeyboardMarkup(row_width=1)
         if status != 'closed':
@@ -755,7 +755,7 @@ def register_user_menu_handlers(bot, user_states, user_data):
         
         # Считаем одобренные отзывы
         cursor.execute("""
-            SELECT COUNT(*) FROM reviews WHERE status = 'approved'
+            SELECT COUNT(*) FROM reviews WHERE is_approved = 1
         """)
         total = cursor.fetchone()[0]
         
@@ -783,7 +783,7 @@ def register_user_menu_handlers(bot, user_states, user_data):
         cursor.execute("""
             SELECT rating, comment, created_at
             FROM reviews
-            WHERE status = 'approved'
+            WHERE is_approved = 1
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """, (per_page, offset))
