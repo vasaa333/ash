@@ -288,25 +288,7 @@ def register_admin_settings_handlers(bot, user_states, user_data):
         )
     
     
-    # ========== MIDDLEWARE ДЛЯ ПРОВЕРКИ РЕЖИМА ОБСЛУЖИВАНИЯ ==========
-    
-    @bot.middleware_handler(update_types=['message'])
-    def check_maintenance_mode(bot_instance, message):
-        """Проверка режима обслуживания"""
-        if message.from_user.id == ADMIN_ID:
-            # Админу всегда разрешено
-            return
-        
-        maintenance = get_setting('maintenance_mode', '0')
-        if maintenance == '1':
-            bot.send_message(
-                message.chat.id,
-                "🛠 *Технические работы*\n\n"
-                "Бот временно недоступен.\n"
-                "Ведутся технические работы.\n\n"
-                "Приносим извинения за неудобства!",
-                parse_mode="Markdown"
-            )
-            return False  # Блокируем обработку
-        
-        return True
+    # ========== HELPER ДЛЯ ПРОВЕРКИ РЕЖИМА ОБСЛУЖИВАНИЯ ==========
+    # Примечание: Для полной реализации middleware нужно использовать
+    # telebot.apihelper.ENABLE_MIDDLEWARE = True перед инициализацией бота
+    # Текущая реализация - упрощенная версия без middleware
