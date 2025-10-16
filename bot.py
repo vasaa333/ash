@@ -142,10 +142,12 @@ def is_admin(user_id: int) -> bool:
 
 # Импорт обработчиков
 from admin_panel import register_admin_handlers
+from admin_orders import register_orders_handlers
 from message_handler import register_user_handlers
 
 # Регистрация обработчиков
 register_admin_handlers(bot, user_states, user_data)
+register_orders_handlers(bot, user_states, user_data)
 register_user_handlers(bot, user_states, user_data)
 
 

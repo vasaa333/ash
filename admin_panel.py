@@ -39,11 +39,12 @@ def register_admin_handlers(bot, user_states, user_data):
         
         markup = types.InlineKeyboardMarkup(row_width=2)
         markup.add(
+            types.InlineKeyboardButton("🛒 Заказы", callback_data="admin_orders"),
+            types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
             types.InlineKeyboardButton("➕ Добавить товар", callback_data="admin_add_product"),
             types.InlineKeyboardButton("➕ Добавить город", callback_data="admin_add_city"),
             types.InlineKeyboardButton("➕ Добавить район", callback_data="admin_add_district"),
             types.InlineKeyboardButton("📦 Пополнить склад", callback_data="admin_add_inventory"),
-            types.InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
             types.InlineKeyboardButton("📋 Список товаров", callback_data="admin_list_products"),
             types.InlineKeyboardButton("🌆 Список городов", callback_data="admin_list_cities"),
             types.InlineKeyboardButton("🏘 Список районов", callback_data="admin_list_districts"),
