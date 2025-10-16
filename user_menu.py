@@ -79,9 +79,10 @@ def register_user_menu_handlers(bot, user_states, user_data):
         offset = page * per_page
         
         cursor.execute("""
-            SELECT o.id, p.name, o.weight_grams, o.price, o.status, o.created_at
+            SELECT o.id, p.name, i.weight_grams, i.price_rub, o.status, o.created_at
             FROM orders o
-            JOIN products p ON o.product_id = p.id
+            JOIN inventory i ON o.inventory_id = i.id
+            JOIN products p ON i.product_id = p.id
             WHERE o.user_id = ?
             ORDER BY o.created_at DESC
             LIMIT ? OFFSET ?
@@ -137,12 +138,14 @@ def register_user_menu_handlers(bot, user_states, user_data):
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT o.id, p.name, o.city, o.district, o.weight_grams, o.price,
+            SELECT o.id, p.name, c.name as city, d.name as district, i.weight_grams, i.price_rub,
                    o.status, o.created_at, o.confirmed_at, o.rejection_reason,
-                   i.encrypted_data
+                   i.data_encrypted
             FROM orders o
-            JOIN products p ON o.product_id = p.id
-            LEFT JOIN inventory i ON o.inventory_id = i.id
+            JOIN inventory i ON o.inventory_id = i.id
+            JOIN products p ON i.product_id = p.id
+            JOIN cities c ON i.city_id = c.id
+            JOIN districts d ON i.district_id = d.id
             WHERE o.id = ? AND o.user_id = ?
         """, (order_id, user_id))
         order = cursor.fetchone()
@@ -308,6 +311,93 @@ def register_user_menu_handlers(bot, user_states, user_data):
         show_ticket_details(call.message, call.from_user.id, ticket_id)
     
     
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("reply_ticket_") and not call.data.startswith("reply_ticket_send_"))
+    def reply_ticket_user_callback(call):
+        """Пользователь отвечает на тикет"""
+        ticket_id = int(call.data.split("_")[-1])
+        bot.answer_callback_query(call.id)
+        
+        user_states[call.from_user.id] = f"replying_ticket_{ticket_id}"
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("❌ Отмена", callback_data=f"view_my_ticket_{ticket_id}"))
+        
+        bot.edit_message_text(
+            f"💬 *Ответ на обращение №{ticket_id}*\n\n"
+            "Напишите ваше сообщение:",
+            call.message.chat.id,
+            call.message.message_id,
+            parse_mode="Markdown",
+            reply_markup=markup
+        )
+    
+    
+    @bot.message_handler(func=lambda message: user_states.get(message.from_user.id, "").startswith("replying_ticket_"))
+    def handle_ticket_reply(message):
+        """Обработка ответа на тикет от пользователя"""
+        state = user_states.get(message.from_user.id, "")
+        ticket_id = int(state.split("_")[-1])
+        reply_text = message.text
+        
+        if len(reply_text) < 5:
+            bot.send_message(
+                message.chat.id,
+                "❌ Сообщение слишком короткое. Минимум 5 символов."
+            )
+            return
+        
+        # Обновляем тикет - добавляем ответ пользователя к message
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT message FROM tickets WHERE id = ?", (ticket_id,))
+        result = cursor.fetchone()
+        if not result:
+            conn.close()
+            bot.send_message(message.chat.id, "❌ Обращение не найдено")
+            user_states.pop(message.from_user.id, None)
+            return
+        
+        old_message = result[0]
+        updated_message = f"{old_message}\n\n--- Ответ пользователя ---\n{reply_text}"
+        
+        cursor.execute("""
+            UPDATE tickets 
+            SET message = ?, status = 'answered', updated_at = datetime('now')
+            WHERE id = ?
+        """, (updated_message, ticket_id))
+        
+        conn.commit()
+        conn.close()
+        
+        # Очищаем состояние
+        user_states.pop(message.from_user.id, None)
+        
+        # Уведомляем админа
+        admin_id = int(os.getenv('ADMIN_ID', '0'))
+        if admin_id:
+            try:
+                bot.send_message(
+                    admin_id,
+                    f"💬 *Новый ответ на обращение №{ticket_id}*\n\n"
+                    f"👤 От: {message.from_user.id}\n"
+                    f"📝 Текст:\n{reply_text}",
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("◀️ К обращению", callback_data=f"view_my_ticket_{ticket_id}"))
+        markup.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="start"))
+        
+        bot.send_message(
+            message.chat.id,
+            "✅ Ваш ответ отправлен!\n\nАдминистратор получит уведомление.",
+            reply_markup=markup
+        )
+    
+    
     def show_my_tickets(message, user_id, page=0):
         """Показать список обращений пользователя"""
         conn = sqlite3.connect(DATABASE)
@@ -410,16 +500,28 @@ def register_user_menu_handlers(bot, user_states, user_data):
         }
         
         text = f"💬 *Обращение №{ticket_id}*\n\n"
+        text += f"📋 Тема: *{subject}*\n"
         text += f"📊 Статус: {status_emoji.get(status, status)}\n"
-        text += f"📅 Создано: {datetime.fromisoformat(created_at).strftime('%d.%m.%Y %H:%M')}\n"
-        text += f"\n📝 *Ваше сообщение:*\n{msg}\n"
+        text += f"📅 Создано: {datetime.fromisoformat(created_at).strftime('%d.%m.%Y %H:%M')}\n\n"
+        text += f"━━━━━━━━━━━━━━━\n\n"
+        
+        # Форматируем ваше сообщение как цитату
+        text += f"👤 *Вы:*\n"
+        for line in msg.split('\n'):
+            text += f"┃ {line}\n"
+        text += f"🕐 {datetime.fromisoformat(created_at).strftime('%d.%m.%Y %H:%M')}\n"
         
         if admin_reply:
-            text += f"\n💬 *Ответ администратора:*\n{admin_reply}\n"
+            text += f"\n━━━━━━━━━━━━━━━\n\n"
+            text += f"👨‍💼 *Администратор:*\n"
+            for line in admin_reply.split('\n'):
+                text += f"┃ {line}\n"
             if replied_at:
-                text += f"📅 {datetime.fromisoformat(replied_at).strftime('%d.%m.%Y %H:%M')}\n"
+                text += f"🕐 {datetime.fromisoformat(replied_at).strftime('%d.%m.%Y %H:%M')}\n"
         
-        markup = types.InlineKeyboardMarkup()
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        if status != 'closed':
+            markup.add(types.InlineKeyboardButton("📝 Ответить", callback_data=f"reply_ticket_{ticket_id}"))
         markup.add(types.InlineKeyboardButton("◀️ К списку обращений", callback_data="my_tickets"))
         markup.add(types.InlineKeyboardButton("🏠 Главное меню", callback_data="start"))
         

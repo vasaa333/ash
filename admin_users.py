@@ -211,6 +211,14 @@ def register_admin_users_handlers(bot, user_states, user_data):
         show_user_details(call.message, user_id)
     
     
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("admin_user_profile_") and is_admin(call.from_user.id))
+    def admin_user_profile_callback(call):
+        """Просмотр профиля пользователя (из заказов)"""
+        bot.answer_callback_query(call.id, "👤 Профиль пользователя")
+        user_id = int(call.data.split("_")[-1])
+        show_user_details(call.message, user_id)
+    
+    
     def show_user_details(message, user_id):
         """Показать детальную информацию о пользователе"""
         conn = sqlite3.connect(DATABASE)
@@ -414,9 +422,10 @@ def register_admin_users_handlers(bot, user_states, user_data):
         offset = page * per_page
         
         cursor.execute("""
-            SELECT o.id, p.name, o.weight_grams, o.price, o.status, o.created_at
+            SELECT o.id, p.name, i.weight_grams, i.price_rub, o.status, o.created_at
             FROM orders o
-            JOIN products p ON o.product_id = p.id
+            JOIN inventory i ON o.inventory_id = i.id
+            JOIN products p ON i.product_id = p.id
             WHERE o.user_id = ?
             ORDER BY o.created_at DESC
             LIMIT ? OFFSET ?
