@@ -429,14 +429,18 @@ def register_admin_handlers(bot, user_states, user_data):
         
         try:
             weight_str, price_str = text.split('|', 1)
-            weight_grams = int(weight_str.strip())
+            
+            # Поддержка десятичных количеств - заменяем запятую на точку
+            weight_str = weight_str.strip().replace(',', '.')
+            weight = float(weight_str)
             price_rub = int(price_str.strip())
             
-            if weight_grams <= 0 or price_rub <= 0:
+            if weight <= 0 or price_rub <= 0:
                 raise ValueError("Значения должны быть положительными")
             
+            # Сохраняем вес как есть (может быть 0.25, 0.5, 100 и т.д.)
             data = user_data.get(message.from_user.id, {})
-            data['inv_weight'] = weight_grams
+            data['inv_weight'] = weight
             data['inv_price'] = price_rub
             user_data[message.from_user.id] = data
             
