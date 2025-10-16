@@ -144,11 +144,22 @@ def is_admin(user_id: int) -> bool:
 from admin_panel import register_admin_handlers
 from admin_orders import register_orders_handlers
 from message_handler import register_user_handlers
+from user_menu import register_user_menu_handlers
+from admin_users import register_admin_users_handlers
+from admin_broadcast import register_admin_broadcast_handlers
+from admin_settings import register_admin_settings_handlers
+from admin_logs import register_admin_logs_handlers
+import db_migration
 
 # Регистрация обработчиков
 register_admin_handlers(bot, user_states, user_data)
 register_orders_handlers(bot, user_states, user_data)
 register_user_handlers(bot, user_states, user_data)
+register_user_menu_handlers(bot, user_states, user_data)
+register_admin_users_handlers(bot, user_states, user_data)
+register_admin_broadcast_handlers(bot, user_states, user_data)
+register_admin_settings_handlers(bot, user_states, user_data)
+register_admin_logs_handlers(bot, user_states, user_data)
 
 
 @bot.message_handler(commands=['start'])
