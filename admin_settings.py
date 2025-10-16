@@ -59,7 +59,7 @@ def register_admin_settings_handlers(bot, user_states, user_data):
         """Показать меню настроек"""
         maintenance = get_setting('maintenance_mode', '0')
         captcha = get_setting('captcha_enabled', '0')
-        welcome_msg = get_setting('welcome_message', 'Добро пожаловать!')
+        welcome_msg = get_setting('welcome_text', 'Добро пожаловать!')
         
         text = f"""⚙️ *Настройки бота*
 

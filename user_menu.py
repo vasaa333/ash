@@ -491,7 +491,7 @@ def register_user_menu_handlers(bot, user_states, user_data):
             bot.answer_callback_query(message.chat.id, "❌ Обращение не найдено")
             return
         
-        ticket_id, subject, msg, status, created_at, admin_reply, replied_at = ticket
+        ticket_id, subject, msg, status, created_at, admin_response, updated_at = ticket
         
         status_emoji = {
             'open': '🟢 Открыто',
@@ -717,8 +717,8 @@ def register_user_menu_handlers(bot, user_states, user_data):
             return
         
         cursor.execute("""
-            INSERT INTO reviews (user_id, rating, comment, status, created_at)
-            VALUES (?, ?, ?, 'pending', datetime('now'))
+            INSERT INTO reviews (user_id, rating, comment, is_approved, created_at)
+            VALUES (?, ?, ?, 0, datetime('now'))
         """, (user_id, rating, text))
         
         conn.commit()

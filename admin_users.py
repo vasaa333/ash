@@ -755,7 +755,7 @@ def register_admin_users_handlers(bot, user_states, user_data):
             # Проверяем существование пользователя
             conn = sqlite3.connect(DATABASE)
             cursor = conn.cursor()
-            cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+            cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
             exists = cursor.fetchone()
             conn.close()
             

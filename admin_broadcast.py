@@ -181,7 +181,7 @@ def register_admin_broadcast_handlers(bot, user_states, user_data):
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT id FROM users WHERE is_blocked = 0
+            SELECT user_id FROM users WHERE is_blocked = 0
         """)
         users = cursor.fetchall()
         
@@ -222,7 +222,7 @@ def register_admin_broadcast_handlers(bot, user_states, user_data):
                 if "bot was blocked" in str(e).lower():
                     conn = sqlite3.connect(DATABASE)
                     cursor = conn.cursor()
-                    cursor.execute("UPDATE users SET is_blocked = 1 WHERE id = ?", (user_id,))
+                    cursor.execute("UPDATE users SET is_blocked = 1 WHERE user_id = ?", (user_id,))
                     conn.commit()
                     conn.close()
         
